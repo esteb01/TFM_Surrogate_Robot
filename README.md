@@ -110,5 +110,5 @@ El sistema ha sido validado con un dataset de prueba de **4,000 muestras inédit
 - Frontend: Streamlit
 
 ## Contacto
-Esteban Ruiz Hernández - estebanruiz435@gmial.com
-Enlace al Proyecto: (https://github.com/esteb01/TFM_Surrogate_Robot)
+- Esteban Ruiz Hernández - estebanruiz435@gmial.com
+- Enlace al Proyecto: (https://github.com/esteb01/TFM_Surrogate_Robot)
