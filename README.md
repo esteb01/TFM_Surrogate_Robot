@@ -1,8 +1,8 @@
 # Optimización de Trayectorias en Robótica mediante Modelos Subrogados
 
 > **Trabajo de Fin de Máster (TFM)** | Máster en Inteligencia Artificial Aplicada  
-> **Autor:** Esteban Ruiz Hernández 
-> **Tutor:** Carlos Cernuda
+- > **Autor:** Esteban Ruiz Hernández 
+- > **Tutor:** Carlos Cernuda
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue) ![PyTorch](https://img.shields.io/badge/PyTorch-GPU-orange) ![Streamlit](https://img.shields.io/badge/Streamlit-App-red) ![Status](https://img.shields.io/badge/Status-Completed-success)
 
@@ -66,11 +66,11 @@ Se recomienda usar un entorno virtual (venv o conda).
 - git clone https://github.com/tu-usuario/TFM_Surrogate_Robot.git
 - cd TFM_Surrogate_Robot
 
-# Crear entorno virtual 
+## Crear entorno virtual 
 - python -m venv venv
-# Activar entorno (Windows: venv\Scripts\activate | Linux/Mac: source venv/bin/activate)
+- Activar entorno (Windows: venv\Scripts\activate | Linux/Mac: source venv/bin/activate)
 
-# Instalar dependencias
+## Instalar dependencias
 - pip install -r requirements.txt
 
 2. Generación de Datos y Entrenamiento
@@ -102,13 +102,13 @@ El sistema ha sido validado con un dataset de prueba de **4,000 muestras inédit
 *\*Recall de Seguridad: Capacidad del modelo para detectar una colisión real. Un 97% indica que el sistema identificó correctamente el 97% de los choques peligrosos.*
 
 ## Tecnologías Utilizadas
-Lenguaje: Python 3.9+
-Simulación: PyBullet
-Deep Learning: PyTorch (CUDA support)
-Machine Learning: Scikit-Learn, SMT (Surrogate Modeling Toolbox)
-Visualización: Plotly, Matplotlib, Seaborn
-Frontend: Streamlit
+- Lenguaje: Python 3.9+
+- Simulación: PyBullet
+- Deep Learning: PyTorch (CUDA support)
+- Machine Learning: Scikit-Learn, SMT (Surrogate Modeling Toolbox)
+- Visualización: Plotly, Matplotlib, Seaborn
+- Frontend: Streamlit
 
 ## Contacto
 Esteban Ruiz Hernández - estebanruiz435@gmial.com
-Enlace al Proyecto: [URL de tu repositorio]
+Enlace al Proyecto: (https://github.com/esteb01/TFM_Surrogate_Robot)
