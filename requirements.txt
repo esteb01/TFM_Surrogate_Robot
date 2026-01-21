@@ -1,0 +1,12 @@
+numpy
+pandas
+scikit-learn
+matplotlib
+seaborn
+smt              # Surrogate Modeling Toolbox (para Kriging/KPLS)
+pybullet         # Para la simulación física futura
+scipy
+joblib           # Para guardar/cargar modelos
+torch
+torchvision
+torchaudio

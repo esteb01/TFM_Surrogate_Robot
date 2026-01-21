@@ -1,0 +1,49 @@
+# Entorno virtual
+.venv/
+env/
+ENV/
+venv/
+__pycache__/
+*.py[cod]
+*.so
+
+# Configuración de IDEs
+.idea/
+.vscode/
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+
+# Jupyter notebooks checkpoints
+.ipynb_checkpoints/
+
+# Archivos temporales
+*.log
+*.tmp
+*.swp
+*.bak
+
+# Archivos de configuración de pip y wheels
+*.egg-info/
+*.eggs/
+*.wheel
+*.whl
+dist/
+build/
+
+
+# Carpeta __pycache__ dentro de cualquier directorio
+**/__pycache__/
+
+
+# Archivos temporales de visualización
+*.gif
+*.png
+
+# Ignorar datasets pesados
+data/raw/*.csv
+data/processed/*.csv
+
+# Ignorar modelos pesados (binarios)
+models/*.pkl
