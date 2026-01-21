@@ -1,8 +1,8 @@
 # Optimización de Trayectorias en Robótica mediante Modelos Subrogados
 
 > **Trabajo de Fin de Máster (TFM)** | Máster en Inteligencia Artificial Aplicada  
-> **Autor:** [Esteban Ruiz Hernández]  
-> **Tutor:** [Carlos Cernuda]
+> **Autor:** Esteban Ruiz Hernández 
+> **Tutor:** Carlos Cernuda
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue) ![PyTorch](https://img.shields.io/badge/PyTorch-GPU-orange) ![Streamlit](https://img.shields.io/badge/Streamlit-App-red) ![Status](https://img.shields.io/badge/Status-Completed-success)
 
@@ -49,7 +49,7 @@ TFM_Surrogate_Robot/
 │   └── surrogate_models.py   # Definición de Kriging, NN, RBF, SVR
 │
 ├── notebooks/                # Análisis y justificación estadística
-│   └── 02_eda_profesional.ipynb  # EDA detallado de los datos generados
+│   └── EDA.ipynb  # EDA detallado de los datos generados
 │
 ├── app.py                    # Interfaz gráfica (Gemelo Digital)
 ├── main.py                   # Script maestro de entrenamiento
@@ -63,20 +63,20 @@ Este proyecto está diseñado para ser totalmente reproducible. Sigue estos paso
 1. Clonar y Configurar Entorno
 Se recomienda usar un entorno virtual (venv o conda).
 
-git clone https://github.com/tu-usuario/TFM_Surrogate_Robot.git
-cd TFM_Surrogate_Robot
+- git clone https://github.com/tu-usuario/TFM_Surrogate_Robot.git
+- cd TFM_Surrogate_Robot
 
-# Crear entorno virtual (Opcional pero recomendado)
-python -m venv venv
+# Crear entorno virtual 
+- python -m venv venv
 # Activar entorno (Windows: venv\Scripts\activate | Linux/Mac: source venv/bin/activate)
 
 # Instalar dependencias
-pip install -r requirements.txt
+- pip install -r requirements.txt
 
 2. Generación de Datos y Entrenamiento
 Ejecuta el script maestro. Este proceso generará 20,000 muestras de simulación física, entrenará el Autoencoder en GPU y ajustará los 4 modelos subrogados.
 
-python main.py
+- python main.py
 
 Tiempo estimado: 20-30 minutos (dependiendo de la GPU/CPU).
 Al finalizar, verás las métricas de rendimiento en la consola y los gráficos en la carpeta results/.
@@ -84,7 +84,7 @@ Al finalizar, verás las métricas de rendimiento en la consola y los gráficos 
 3. Lanzar el Gemelo Digital
 Una vez finalizado el entrenamiento, inicia la interfaz web:
 
-streamlit run app.py
+- streamlit run app.py
 
 Esto abrirá una pestaña en tu navegador donde podrás interactuar con el robot, generar escenarios aleatorios y probar la optimización en tiempo real.
 
