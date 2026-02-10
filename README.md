@@ -1,114 +1,135 @@
-# Optimización de Trayectorias en Robótica mediante Modelos Subrogados
+# Robotic Trajectory Optimization using Surrogate Models
 
-> **Trabajo de Fin de Máster (TFM)** | Máster en Inteligencia Artificial Aplicada  
-- > **Autor:** Esteban Ruiz Hernández 
-- > **Tutor:** Carlos Cernuda
+> **(TFM)** | Master in Applied Artificial Intelligence
+> - **Author:** Esteban Ruiz Hernández
+> - **Supervisor:** Carlos Cernuda
 
 ![Python](https://img.shields.io/badge/Python-3.8%2B-blue) ![PyTorch](https://img.shields.io/badge/PyTorch-GPU-orange) ![Streamlit](https://img.shields.io/badge/Streamlit-App-red) ![Status](https://img.shields.io/badge/Status-Completed-success)
 
-## Descripción del Proyecto
+## Project Description
 
-Este proyecto aborda uno de los desafíos críticos en la robótica moderna: la **planificación de movimiento en tiempo real** en entornos dinámicos de alta dimensionalidad.
+This project addresses a critical challenge in modern robotics: **real-time motion planning** in high-dimensional dynamic environments.
 
-Las simulaciones físicas de alta fidelidad (como PyBullet) son precisas pero computacionalmente costosas (~50ms por evaluación), lo que impide su uso para evaluar miles de trayectorias candidatas en tiempo real. Este TFM propone e implementa un **Gemelo Digital basado en IA** que utiliza **Modelos Subrogados (Surrogate Models)** para predecir la viabilidad, el coste energético y el riesgo de colisión de una trayectoria en microsegundos.
+High-fidelity physical simulations (such as PyBullet) are accurate but computationally expensive (~50ms per evaluation), preventing their use for evaluating thousands of candidate trajectories in real-time. This TFM proposes and implements an **AI-based Digital Twin** that utilizes **Surrogate Models** to predict the viability, energy cost, and collision risk of a trajectory in microseconds.
 
-### Características Clave
-*   **Simulación Física (Ground Truth):** Entorno robótico basado en **PyBullet** con un manipulador KUKA IIWA de 7-DoF.
-*   **Alta Dimensionalidad:** Manejo de trayectorias complejas con **350 dimensiones** ($7 \text{ joints} \times 50 \text{ steps}$).
-*   **Deep Learning:** Implementación de un **Autoencoder Profundo** para reducción de dimensionalidad no lineal.
-*   **Comparativa de Modelos:** Benchmarking riguroso entre **Redes Neuronales (DNN)**, **Kriging (Gaussian Processes)**, **SVR** y **RBF**.
-*   **Interfaz Gráfica:** Aplicación interactiva en **Streamlit** para visualización y validación en tiempo real.
-
----
-
-## Arquitectura del Sistema
-
-El flujo de trabajo (*pipeline*) se divide en tres etapas críticas:
-
-1.  **Generación de Datos (DoE):**
-    *   Generación estocástica de escenarios con obstáculos dinámicos.
-    *   Cálculo de trayectorias mediante Cinemática Inversa (IK) con inyección de ruido y variabilidad.
-    *   Evaluación física en PyBullet para obtener el coste real y etiquetas de colisión.
-2.  **Entrenamiento:**
-    *   Compresión del espacio de entrada (350D $\to$ 16D Latentes) mediante Autoencoder.
-    *   Entrenamiento condicional de modelos subrogados: $f(\text{Latente}, \text{Contexto}) \to \text{Coste}$.
-3.  **Inferencia (Aplicación):**
-    *   Uso del modelo para filtrar miles de trayectorias candidatas en milisegundos.
+### Key Features
+*   **Physical Simulation (Ground Truth):** Robotic environment based on **PyBullet** with a 7-DoF KUKA IIWA manipulator.
+*   **High Dimensionality:** Handling of complex trajectories with **350 dimensions** ($7 \text{ joints} \times 50 \text{ steps}$).
+*   **Deep Learning:** Implementation of a **Deep Autoencoder** for nonlinear dimensionality reduction.
+*   **Model Comparison:** Rigorous benchmarking between **Neural Networks (DNN)**, **Physics-Guided Neural Networks (PINN)**, **Kriging (Gaussian Processes)**, **SVR**, and **RBF**.
+*   **Automated Optimization (AutoML):** Integration of **Optuna** for hyperparameter tuning.
+*   **Multi-Task Architecture:** Simultaneous prediction of regression (cost) and classification (collision) metrics.
+*   **Graphical Interface:** Interactive application in **Streamlit** for real-time visualization and validation.
 
 ---
 
-## Estructura del Repositorio
+## System Architecture
+
+The workflow (*pipeline*) is divided into four critical stages:
+
+1.  **Data Generation (DoE):**
+    *   Stochastic generation of scenarios with dynamic obstacles.
+    *   Trajectory calculation using Inverse Kinematics (IK) with noise injection and variability.
+    *   Physical evaluation in PyBullet to obtain real cost and collision labels.
+2.  **Preprocessing & Dimensionality Reduction:**
+    *   Compression of the input space (350D $\to$ 16D Latent) using a Deep Autoencoder.
+    *   Data preparation for Multi-Task learning.
+3.  **Training & Optimization:**
+    *   Automated hyperparameter search using **Optuna**.
+    *   Conditional training of surrogate models: $f(\text{Latent}, \text{Context}) \to (\text{Cost}, \text{Collision Prob})$.
+    *   Implementation of Physics-Guided Loss functions.
+4.  **Inference (Application):**
+    *   Use of the model to filter thousands of candidate trajectories in milliseconds.
+
+---
+
+## Repository Structure
 
 ```text
 TFM_Surrogate_Robot/
 │
-├── src/                      # Código fuente del núcleo
-│   ├── simulation.py         # Motor físico (PyBullet)
-│   ├── data_generation.py    # Generador de escenarios y trayectorias
-│   ├── preprocessing.py      # Autoencoder y reducción de dimensionalidad
-│   └── surrogate_models.py   # Definición de Kriging, NN, RBF, SVR
+├── src/                      # Core source code
+│   ├── simulation.py         # Physics engine (PyBullet)
+│   ├── data_generation.py    # Scenario and trajectory generator
+│   ├── preprocessing.py      # Autoencoder and dimensionality reduction
+│   ├── surrogate_models.py   # Definition of Kriging, NN, PINN, RBF, SVR
+│   └── hyperparameter_tuning.py # Optuna optimization script
 │
-├── notebooks/                # Análisis y justificación estadística
-│   └── EDA.ipynb  # EDA detallado de los datos generados
+├── notebooks/                # Analysis and statistical justification
+│   └── EDA.ipynb             # Detailed EDA of generated data
 │
-├── app.py                    # Interfaz gráfica (Gemelo Digital)
-├── main.py                   # Script maestro de entrenamiento
-└── requirements.txt          # Dependencias del proyecto
+├── app.py                    # Graphical Interface (Digital Twin)
+├── main.py                   # Master training script
+└── requirements.txt          # Project dependencies
 ```
 
-Nota: Las carpetas data/ y models/ no se incluyen en el repositorio para mantenerlo ligero. Se generan automáticamente al ejecutar el código.
+Note: The data/ and models/ folders are not included in the repository to keep it lightweight. They are automatically generated when running the code.
 
-## Instalación y Reproducción
-Este proyecto está diseñado para ser totalmente reproducible. Sigue estos pasos para generar los datos, entrenar los modelos desde cero y lanzar la aplicación.
-1. Clonar y Configurar Entorno
-Se recomienda usar un entorno virtual (venv o conda).
+---
 
-- git clone https://github.com/tu-usuario/TFM_Surrogate_Robot.git
+## Installation and Reproduction
+This project is designed to be fully reproducible. Follow these steps to generate data, train models from scratch, and launch the application.
+1. Clone and Configure Environment
+Using a virtual environment (venv or conda) is recommended.
+
+- git clone https://github.com/esteb01/TFM_Surrogate_Robot.git
 - cd TFM_Surrogate_Robot
 
-## Crear entorno virtual 
-- python -m venv venv
-- Activar entorno (Windows: venv\Scripts\activate | Linux/Mac: source venv/bin/activate)
+---
 
-## Instalar dependencias
+## Create virtual environment 
+- python -m venv venv
+- Activate environment (Windows: venv\Scripts\activate | Linux/Mac: source venv/bin/activate)
+
+---
+
+## Install dependencies
 - pip install -r requirements.txt
 
-2. Generación de Datos y Entrenamiento
-Ejecuta el script maestro. Este proceso generará 20,000 muestras de simulación física, entrenará el Autoencoder en GPU y ajustará los 4 modelos subrogados.
+2. Data Generation and Training
+Run the master script. This process will generate 20,000 physical simulation samples, train the Autoencoder on GPU, optimize hyperparameters with Optuna, and fit the 5 surrogate models.
 
 - python main.py
 
-Tiempo estimado: 20-30 minutos (dependiendo de la GPU/CPU).
-Al finalizar, verás las métricas de rendimiento en la consola y los gráficos en la carpeta results/.
+Estimated time: 20-30 minutes (depending on GPU/CPU).
+Upon completion, you will see performance metrics in the console and graphs in the results/ folder.
 
-3. Lanzar el Gemelo Digital
-Una vez finalizado el entrenamiento, inicia la interfaz web:
+3. Launch the Digital Twin
+Once training is finished, start the web interface:
 
 - streamlit run app.py
 
-Esto abrirá una pestaña en tu navegador donde podrás interactuar con el robot, generar escenarios aleatorios y probar la optimización en tiempo real.
+This will open a tab in your browser where you can interact with the robot, generate random scenarios, and test real-time optimization.
 
-## Resultados Obtenidos
+---
 
-El sistema ha sido validado con un dataset de prueba de **4,000 muestras inéditas** (20% de un total de 20,000), obteniendo los siguientes resultados:
+## Obtained Results
 
-| Modelo | R² Score (Precisión) | Recall (Seguridad)* | Speedup (vs Física) |
+The system has been validated with a test dataset of 4,000 unseen samples (20% of a total of 20,000). The Neural Network achieved the best regression accuracy, while the PINN demonstrated superior safety recall.
+
+| Model | R² Score (Precision) | Recall (Safety)* | Speedup (vs Physics) |
 | :--- | :---: | :---: | :---: |
-| **Neural Network (GPU)** | **0.961** | **97.0%** | **~1400x** |
-| Kriging (Standard) | 0.864 | 93.4% | ~40x |
-| SVR (Sklearn) | 0.809 | 92.4% | ~800x |
-| RBF (SMT) | 0.644 | 40.5% | ~10x |
+| **Neural Network (Multi-Task)** | **0.918** | 84.6% | **~1400x** |
+| Kriging (Standard) | 0.895 | 93.6% | ~40x |
+| PINN (Physics-Guided) | 0.852 | **96.2%** | ~1400x |
+| SVR (Sklearn) | 0.856 | 94.4% | ~800x |
+| RBF (SMT) | 0.851 | 92.0% | ~10x |
 
-*\*Recall de Seguridad: Capacidad del modelo para detectar una colisión real. Un 97% indica que el sistema identificó correctamente el 97% de los choques peligrosos.*
+*\*Safety Recall: The model's ability to detect a real collision. A higher value indicates the system correctly identified more dangerous crashes (fewer false negatives).*
 
-## Tecnologías Utilizadas
-- Lenguaje: Python 3.9+
-- Simulación: PyBullet
+---
+
+## Software 
+- Language: Python 3.9+
+- Simulation: PyBullet
 - Deep Learning: PyTorch (CUDA support)
+- AutoML: Optuna
 - Machine Learning: Scikit-Learn, SMT (Surrogate Modeling Toolbox)
-- Visualización: Plotly, Matplotlib, Seaborn
+- Visualization: Plotly, Matplotlib, Seaborn
 - Frontend: Streamlit
 
-## Contacto
+---
+
+## Contact
 - Esteban Ruiz Hernández - estebanruiz435@gmial.com
-- Enlace al Proyecto: (https://github.com/esteb01/TFM_Surrogate_Robot)
+- Project Link: (https://github.com/esteb01/TFM_Surrogate_Robot)
