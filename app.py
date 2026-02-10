@@ -8,48 +8,48 @@ import joblib
 import time
 from PIL import Image
 
-# --- IMPORTS PROYECTO ---
+# --- PROJECT IMPORTS ---
 from src.simulation import RobotSimulator
 from src.preprocessing import DimensionalityReducer
-from src.surrogate_models import KrigingSurrogate, NeuralSurrogate, RBFSurrogate, SVRSurrogate
+from src.surrogate_models import KrigingSurrogate, NeuralSurrogate, RBFSurrogate, SVRSurrogate, PhysicsGuidedSurrogate
 
 # ==========================================
-# 1. CONFIGURACIÓN E IDIOMA VISUAL
+# 1. ENVIRONMENT CONFIGURATION
 # ==========================================
 st.set_page_config(
-    page_title="TFM: Gemelo Digital Robótico",
+    page_title="Digital Twin: Robotic Surrogate Optimization",
     layout="wide",
     page_icon="🦾",
     initial_sidebar_state="expanded"
 )
 
-# Constantes (Sincronizadas con main.py)
+# Constants
 MODELS_DIR = 'models'
 RESULTS_DIR = 'results'
 N_DIMENSIONS = 350
 LATENT_DIM = 16
 CONTEXT_DIM = 6
+COLLISION_THRESHOLD = 1500
 
-# Estilos CSS para profesionalizar la UI
+# CSS Styling
 st.markdown("""
     <style>
-    .big-font { font-size:20px !important; font-weight: bold; }
-    .success-box { padding:10px; border-radius:5px; background-color:rgba(20, 255, 50, 0.1); border: 1px solid green; }
-    .error-box { padding:10px; border-radius:5px; background-color:rgba(255, 20, 20, 0.1); border: 1px solid red; }
+    .metric-card { background-color: #1e1e1e; border: 1px solid #333; padding: 15px; border-radius: 8px; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("Gemelo Digital: Optimización Robótica con Modelos Subrogados")
-st.markdown("#### TFM - Máster Inteligencia Artificial Aplicada")
+st.title("🦾 Digital Twin: Physics-Informed Robotic Optimization")
 
 # ==========================================
-# 2. LÓGICA DE CARGA
+# 2. SYSTEM LOADING
 # ==========================================
-st.sidebar.header("⚙️ Configuración del Sistema")
+st.sidebar.header("Configuration")
+
+# Model Selector
 model_key = st.sidebar.selectbox(
-    "Motor de Inferencia (IA)",
-    ("Neural Network (GPU)", "Kriging (Standard)", "SVR (Sklearn)", "RBF (SMT)"),
-    help="Selecciona la arquitectura del modelo subrogado para realizar las predicciones."
+    "Active Inference Engine",
+    ("PINN (Physics-Guided)", "Neural Network (Multi-Task)", "Kriging (Standard)", "SVR (Sklearn)", "RBF (SMT)"),
+    help="Select the surrogate model architecture for real-time predictions."
 )
 
 
@@ -61,18 +61,22 @@ def load_artifacts():
         scaler = joblib.load(os.path.join(MODELS_DIR, 'target_scaler.pkl'))
 
         models = {}
+        # Configuration for loading all models
         configs = [
             ("Kriging (Standard)", "kriging.pkl", KrigingSurrogate),
-            ("Neural Network (GPU)", "neural_net.pkl", lambda: NeuralSurrogate(LATENT_DIM + CONTEXT_DIM)),
+            ("Neural Network (Multi-Task)", "neural_net.pkl", lambda: NeuralSurrogate(LATENT_DIM + CONTEXT_DIM)),
+            ("PINN (Physics-Guided)", "pinn.pkl", lambda: PhysicsGuidedSurrogate(LATENT_DIM + CONTEXT_DIM)),
             ("RBF (SMT)", "rbf.pkl", RBFSurrogate),
             ("SVR (Sklearn)", "svr.pkl", SVRSurrogate)
         ]
+
         for name, file, constructor in configs:
             path = os.path.join(MODELS_DIR, file)
             if os.path.exists(path):
                 m = constructor()
                 m.load(path)
                 models[name] = m
+
         return dr, scaler, models
     except Exception as e:
         return None, None, str(e)
@@ -81,101 +85,110 @@ def load_artifacts():
 dr, target_scaler, loaded_models = load_artifacts()
 
 if not loaded_models:
-    st.error("Error crítico: No se encontraron los modelos. Ejecuta 'main.py' primero.")
+    st.error("System Error: Artifacts not found. Please run 'main.py' to initialize the system.")
     st.stop()
 
 # ==========================================
-# 3. INTERFAZ PRINCIPAL
+# 3. INTERFACE TABS
 # ==========================================
-tab1, tab2, tab3 = st.tabs([
-    "📘 Fundamentos y Resultados",
-    "🧪 Laboratorio de Validación",
-    "🏭 Caso de Uso: Optimización Industrial"
+tab_reg, tab_cls, tab_unit, tab_opt = st.tabs([
+    "📉 Regression Analysis",
+    "🛡️ Safety Classification",
+    "🧪 Unit Testing",
+    "🏭 Industrial Optimization"
 ])
 
-# --- TAB 1: MARCO TEÓRICO Y RESULTADOS ---
-with tab1:
-    col_text, col_metrics = st.columns([1, 1])
+# Load Results CSV
+res_csv = os.path.join(RESULTS_DIR, 'model_comparison.csv')
+if os.path.exists(res_csv):
+    df_res = pd.read_csv(res_csv)
+else:
+    df_res = None
 
-    with col_text:
-        st.header("1. Definición del Problema")
-        st.info("""
-        **Objetivo:** Reducir el tiempo de planificación de trayectorias en robots manipuladores (KUKA IIWA) en entornos con obstáculos dinámicos.
+# --- TAB 1: REGRESSION METRICS ---
+with tab_reg:
+    st.header("Performance Estimation (Regression)")
+    st.markdown(
+        "Evaluation of model capacity to predict continuous physical cost ($J$). Focus on energy efficiency and smoothness.")
 
-        **El Reto:** La simulación física de alta fidelidad (PyBullet) es precisa pero lenta (~50ms por evaluación). Para optimizar una trayectoria, se requieren miles de evaluaciones, lo que hace inviable el control en tiempo real.
-        """)
+    if df_res is not None:
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            st.markdown("### 📊 Metrics Table")
+            reg_cols = ['Model', 'r2', 'rmse', 'mae']
+            st.dataframe(df_res[reg_cols].style.highlight_max(axis=0, subset=['r2'], color='#d1e7dd'),
+                         use_container_width=True)
 
-        st.markdown("### 2. Función de Coste ($J$)")
-        st.markdown("El modelo subrogado aprende a predecir el siguiente coste físico:")
-        st.latex(r'''
-        J(\mathbf{x}) = w_1 \cdot ||\mathbf{p}_{ee} - \mathbf{p}_{target}|| + w_2 \cdot \sum ||\ddot{\mathbf{q}}||^2 + \text{Penalización}(Colisión)
-        ''')
-        st.caption("""
-        *   **Precisión:** Distancia al objetivo.
-        *   **Suavidad:** Minimización de aceleraciones bruscas (Jerk).
-        *   **Seguridad:** Penalización masiva si hay contacto con obstáculos.
-        """)
+            best_reg = df_res.loc[df_res['r2'].idxmax()]
+            st.info(f"🏆 Best Regressor: **{best_reg['Model']}** ($R^2$: {best_reg['r2']:.4f})")
 
-    with col_metrics:
-        st.header("3. Validación de Modelos (20k Muestras)")
-        res_csv = os.path.join(RESULTS_DIR, 'model_comparison.csv')
-        if os.path.exists(res_csv):
-            df_res = pd.read_csv(res_csv)
-            best_model = df_res.loc[df_res['R2'].idxmax()]
-
-            # KPIs Principales
-            k1, k2, k3 = st.columns(3)
-            k1.metric("Mejor Modelo", best_model['Model'])
-            k1.metric("Precisión (R2)", f"{best_model['R2']:.4f}")
-            k2.metric("Recall (Seguridad)", f"{best_model.get('Recall', 0):.1%}",
-                      help="Capacidad de detectar choques reales.")
-            k3.metric("Speedup Estimado", "1400x", delta="Vs. Física")
-
-            st.dataframe(df_res.style.highlight_max(axis=0, subset=['R2'], color='#d1e7dd'), use_container_width=True)
-        else:
-            st.warning("Resultados no disponibles.")
+        with c2:
+            st.markdown("### 📈 Precision Comparison")
+            fig = px.bar(df_res, x='Model', y='r2', color='Model', text_auto='.3f', title="R2 Score (Higher is Better)")
+            fig.update_layout(showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
 
     st.divider()
-    st.subheader("4. Análisis Visual")
-    c_conf, c_reg = st.columns(2)
-    with c_conf:
-        st.markdown("**Matrices de Confusión (Detección de Colisiones)**")
-        img = os.path.join(RESULTS_DIR, 'confusion_matrices.png')
-        if os.path.exists(img): st.image(img, use_container_width=True)
-    with c_reg:
-        st.markdown("**Regresión (Predicción de Coste)**")
-        img = os.path.join(RESULTS_DIR, 'regression_plots.png')
-        if os.path.exists(img): st.image(img, use_container_width=True)
+    st.markdown("### 🔍 Residual Analysis")
+    img_reg = os.path.join(RESULTS_DIR, 'regression_plots.png')
+    if os.path.exists(img_reg):
+        st.image(img_reg, caption="Predicted vs Actual Cost (Log Scale)", use_container_width=True)
 
-# --- TAB 2: VALIDACIÓN UNITARIA ---
-with tab2:
-    st.header("Laboratorio de Pruebas Individuales")
-    st.markdown("""
-    En esta sección, generamos un **escenario aleatorio inédito** (nunca visto por el modelo) para validar su capacidad de generalización.
-    """)
+# --- TAB 2: SAFETY METRICS ---
+with tab_cls:
+    st.header("Safety Assessment (Classification)")
+    st.markdown(
+        "Evaluation of collision detection capabilities. **Recall** is the critical metric here (avoiding false negatives).")
 
-    col_setup, col_result = st.columns([1, 2])
+    if df_res is not None:
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            st.markdown("### 🛡️ Classification Metrics")
+            cls_cols = ['Model', 'accuracy', 'recall', 'precision', 'f1']
+            st.dataframe(df_res[cls_cols].style.highlight_max(axis=0, subset=['recall'], color='#ffcccc'),
+                         use_container_width=True)
 
-    with col_setup:
-        st.subheader("Generador de Escenarios")
-        if st.button("🎲 Crear Nuevo Entorno Aleatorio", type="primary"):
+            best_safe = df_res.loc[df_res['recall'].idxmax()]
+            st.error(f"🛡️ Safest Model: **{best_safe['Model']}** (Recall: {best_safe['recall']:.1%})")
+
+        with c2:
+            st.markdown("### 🚨 Recall Sensitivity")
+            fig = px.bar(df_res, x='Model', y='recall', color='Model', text_auto='.3f',
+                         title="Recall Score (Ability to detect crashes)")
+            fig.update_layout(showlegend=False)
+            st.plotly_chart(fig, use_container_width=True)
+
+    st.divider()
+    st.markdown("### 🧩 Confusion Matrices")
+    img_cm = os.path.join(RESULTS_DIR, 'confusion_matrices.png')
+    if os.path.exists(img_cm):
+        st.image(img_cm, caption="True Label vs Predicted Label", use_container_width=True)
+
+# --- TAB 3: UNIT TEST ---
+with tab_unit:
+    st.header("Single Scenario Validation")
+
+    c_ctrl, c_view = st.columns([1, 2])
+    with c_ctrl:
+        st.markdown("### Simulation Controls")
+        if st.button("🎲 Generate Random Scenario"):
             sim = RobotSimulator(dimension=N_DIMENSIONS)
 
-            # Generar entorno
-            target = np.array([np.random.uniform(0.4, 0.7), np.random.uniform(-0.4, 0.4), 0.05])
-            # Obstáculo en medio
-            ox = target[0] * np.random.uniform(0.4, 0.6)
-            oy = target[1] * np.random.uniform(0.4, 0.6)
+            tx = np.random.uniform(0.4, 0.7);
+            ty = np.random.uniform(-0.4, 0.4)
+            target = np.array([tx, ty, 0.05])
+
+            ox = tx * np.random.uniform(0.4, 0.6);
+            oy = ty * np.random.uniform(0.4, 0.6)
             obstacle = np.array([ox, oy, 0.25])
 
-            # Trayectoria aleatoria (puede ser buena o mala)
             h_offset = np.random.uniform(-0.15, 0.4)
             base_traj = sim.get_ik_trajectory_advanced(target, mid_point_height_offset=h_offset)
             traj = base_traj + np.random.normal(0, 0.02, base_traj.shape)
 
-            st.session_state['unit'] = {'traj': traj, 'target': target, 'obs': obstacle, 'real': None}
+            st.session_state['u_data'] = {'traj': traj, 'target': target, 'obs': obstacle, 'real': None}
 
-            # Predicción IA
+            # Predict
             X_lat = dr.transform(traj.reshape(1, -1))
             ctx = np.concatenate([target, obstacle]).reshape(1, -1)
             X_in = np.hstack([X_lat, ctx])
@@ -183,182 +196,157 @@ with tab2:
             preds = []
             for name, model in loaded_models.items():
                 t0 = time.time()
-                p = model.predict(X_in)
+                res = model.predict(X_in)
                 dt = time.time() - t0
-                val = np.expm1(target_scaler.inverse_transform(p.reshape(-1, 1))[0][0])
-                preds.append({"Modelo": name, "Predicción": val, "Tiempo (s)": dt})
-            st.session_state['unit_preds'] = pd.DataFrame(preds)
 
-    with col_result:
-        if 'unit' in st.session_state:
-            u = st.session_state['unit']
-            st.info(f"Objetivo generado en: ({u['target'][0]:.2f}, {u['target'][1]:.2f})")
+                # Multi-Task Logic
+                if isinstance(res, tuple):
+                    p_scaled, p_prob = res
+                    prob = p_prob[0][0]
+                    # Logic: If Prob > 0.5 -> Collision
+                    p_safe = "⚠️ Collision" if prob > 0.5 else "✅ Safe"
+                    # Add prob to display string for debugging
+                    p_safe += f" ({prob:.0%})"
+                else:
+                    p_scaled = res
+                    # Heuristic for Standard Models
+                    temp_cost = np.expm1(target_scaler.inverse_transform(p_scaled.reshape(-1, 1))[0][0])
+                    p_safe = "⚠️ Collision" if temp_cost > COLLISION_THRESHOLD else "✅ Safe"
+                    p_safe += " (Heuristic)"
 
-            st.markdown("##### 1. Predicción de los Modelos")
-            st.dataframe(st.session_state['unit_preds'].style.format({"Predicción": "{:.2f}", "Tiempo (s)": "{:.6f}"}),
+                p_real = np.expm1(target_scaler.inverse_transform(p_scaled.reshape(-1, 1))[0][0])
+
+                preds.append({"Model": name, "Pred Cost": p_real, "Safety Status": p_safe, "Latency (s)": dt})
+
+            st.session_state['u_preds'] = pd.DataFrame(preds)
+
+    with c_view:
+        if 'u_data' in st.session_state:
+            u = st.session_state['u_data']
+            st.info(f"Target at ({u['target'][0]:.2f}, {u['target'][1]:.2f})")
+
+            st.dataframe(st.session_state['u_preds'].style.format({"Pred Cost": "{:.2f}", "Latency (s)": "{:.6f}"}),
                          use_container_width=True)
 
-            st.markdown("##### 2. Validación Física (Ground Truth)")
-            if st.button("⚖️ Ejecutar Simulador Físico"):
+            if st.button("⚖️ Validate (PyBullet)"):
                 sim = RobotSimulator(dimension=N_DIMENSIONS, gui_mode=False)
-                with st.spinner("Resolviendo ecuaciones diferenciales en PyBullet..."):
-                    t0 = time.time()
-                    real_cost = \
-                    sim.evaluate(u['traj'].reshape(1, -1), u['target'].reshape(1, -1), u['obs'].reshape(1, -1))[0][0]
+                with st.spinner("Simulating Physics..."):
+                    rc = sim.evaluate(u['traj'].reshape(1, -1), u['target'].reshape(1, -1), u['obs'].reshape(1, -1))[0][
+                        0]
                     sim.generate_gif(u['traj'], u['target'], u['obs'], "unit.gif")
-                    t_phy = time.time() - t0
-                st.session_state['unit']['real'] = (real_cost, t_phy)
+                st.session_state['u_data']['real'] = rc
 
-            if st.session_state['unit']['real']:
-                rc, t_phy = st.session_state['unit']['real']
-
-                c_vis, c_dat = st.columns([1, 1])
-                with c_vis:
-                    st.image("unit.gif", caption="Simulación Real", use_container_width=True)
-                with c_dat:
-                    st.metric("Coste Físico Real", f"{rc:.2f}")
-
-                    if rc > 1500:
-                        st.markdown('<div class="error-box">💥 <b>Resultado:</b> Colisión detectada</div>',
-                                    unsafe_allow_html=True)
+            if st.session_state['u_data']['real']:
+                rc = st.session_state['u_data']['real']
+                c1, c2 = st.columns([1, 1])
+                with c1:
+                    st.image("unit.gif", caption=f"Real Cost: {rc:.2f}", use_container_width=True)
+                with c2:
+                    if rc > COLLISION_THRESHOLD:
+                        st.error(f"💥 COLLISION DETECTED")
                     else:
-                        st.markdown('<div class="success-box">✅ <b>Resultado:</b> Movimiento Seguro</div>',
-                                    unsafe_allow_html=True)
+                        st.success(f"✅ SAFE TRAJECTORY")
 
-                    st.metric("Tiempo Simulación", f"{t_phy:.4f} s")
+                    # CORREGIDO: Mostrar error numérico siempre
+                    model_pred = st.session_state['u_preds'].loc[
+                        st.session_state['u_preds']['Model'] == model_key, 'Pred Cost'].values[0]
+                    err = abs(rc - model_pred)
+                    st.metric("Prediction Error", f"{err:.2f}")
 
-                    # Speedup vs IA seleccionada
-                    t_ai = st.session_state['unit_preds'].loc[
-                        st.session_state['unit_preds']['Modelo'] == model_key, 'Tiempo (s)'].values[0]
-                    st.metric("Speedup (IA vs Física)", f"{t_phy / max(t_ai, 1e-9):.0f}x", delta="Más rápido")
+# --- TAB 4: INDUSTRIAL OPTIMIZATION ---
+with tab_opt:
+    st.header("Real-Time Path Optimization")
+    st.markdown(
+        "Simulates an industrial scenario where the robot must select the optimal trajectory from **N** candidates in milliseconds.")
 
-# --- TAB 3: OPTIMIZACIÓN INDUSTRIAL ---
-with tab3:
-    st.header("🏭 Caso de Uso: Planificación de Movimiento en Tiempo Real")
-    st.markdown("""
-    **Escenario:** El robot debe esquivar un obstáculo imprevisto. 
-    Se generan múltiples trayectorias candidatas y la IA debe seleccionar la mejor en milisegundos.
-    """)
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        n_cand = st.slider("Candidates Batch Size", 50, 2000, 500)
 
-    col_param, col_main = st.columns([1, 3])
-
-    with col_param:
-        st.subheader("Configuración")
-        n_cand = st.slider("Candidatos a evaluar", 50, 2000, 500)
-        st.info("A mayor número de candidatos, mayor probabilidad de encontrar un óptimo global.")
-
-        if st.button("🔥 INICIAR OPTIMIZACIÓN", type="primary"):
+        if st.button("🚀 Run Optimizer", type="primary"):
             sim = RobotSimulator(dimension=N_DIMENSIONS)
-
-            # 1. Escenario
-            target = np.array([0.65, 0.0, 0.05])
+            target = np.array([0.65, 0.0, 0.05]);
             obstacle = np.array([0.35, 0.0, 0.25])
 
-            # 2. Generar Batch
-            candidates = []
+            # Generate Candidates
+            cands = []
             for _ in range(n_cand):
                 r = np.random.rand()
-                # Generamos variedad intencional para la demo
-                if r < 0.4:
-                    h = np.random.uniform(-0.15, 0.05)  # Malos (Bajos)
-                elif r < 0.8:
-                    h = np.random.uniform(0.25, 0.6)  # Buenos (Altos)
-                else:
-                    h = np.random.uniform(-0.1, 0.6)  # Random
+                h = np.random.uniform(-0.15, 0.05) if r < 0.4 else (
+                    np.random.uniform(0.2, 0.6) if r < 0.8 else np.random.uniform(-0.1, 0.6))
+                traj = sim.get_ik_trajectory_advanced(target, mid_point_height_offset=h) + np.random.normal(0, 0.015,
+                                                                                                            (350,))
+                cands.append(traj)
+            cands = np.array(cands)
 
-                traj = sim.get_ik_trajectory_advanced(target, mid_point_height_offset=h)
-                traj += np.random.normal(0, 0.015, traj.shape)
-                candidates.append(traj)
-            candidates = np.array(candidates)
-
-            # 3. Inferencia IA
+            # Inference
             model = loaded_models[model_key]
             t0 = time.time()
 
-            X_lat = dr.transform(candidates)
+            X_lat = dr.transform(cands)
             ctx = np.tile(np.concatenate([target, obstacle]), (n_cand, 1))
-            X_in = np.hstack([X_lat, ctx])
+            res = model.predict(np.hstack([X_lat, ctx]))
 
-            preds = np.expm1(target_scaler.inverse_transform(model.predict(X_in)).flatten())
+            # Selection Logic
+            if isinstance(res, tuple):
+                p_s, p_prob = res
+                preds = np.expm1(target_scaler.inverse_transform(p_s).flatten())
+                safe_mask = p_prob.flatten() < 0.5
+                valid_costs = preds.copy()
+                valid_costs[~safe_mask] = np.inf
+                best_idx = np.argmin(valid_costs)
+            else:
+                p_s = res
+                preds = np.expm1(target_scaler.inverse_transform(p_s).flatten())
+                # Heuristic Filter
+                valid_costs = preds.copy()
+                valid_costs[preds > COLLISION_THRESHOLD] = np.inf
+                best_idx = np.argmin(valid_costs)
+
             t_ai = time.time() - t0
 
-            # Selección
-            best_idx = np.argmin(preds)
-            worst_idx = np.argmax(preds)
-
             st.session_state['opt'] = {
-                'cands': candidates, 'preds': preds,
-                'best': (best_idx, preds[best_idx]),
-                'worst': (worst_idx, preds[worst_idx]),
+                'cands': cands, 'preds': preds, 'best': best_idx,
                 'ctx': (target, obstacle), 'time': t_ai, 'n': n_cand
             }
 
-    with col_main:
+    with col2:
         if 'opt' in st.session_state:
             res = st.session_state['opt']
+            best_cost = res['preds'][res['best']]
 
-            # --- KPIs de Negocio ---
-            k1, k2, k3, k4 = st.columns(4)
-            k1.metric("Candidatos Evaluados", res['n'])
-            k1.caption("Trayectorias analizadas")
+            k1, k2, k3 = st.columns(3)
+            k1.metric("Inference Time", f"{res['time'] * 1000:.1f} ms")
+            k2.metric("Optimal Cost", f"{best_cost:.2f}")
 
-            k2.metric("Tiempo de Decisión (IA)", f"{res['time'] * 1000:.1f} ms")
-            k2.caption("Tiempo de cómputo total")
-
-            # Speedup real
-            t_phy_est = res['n'] * 0.045  # 45ms promedio por física
+            t_phy_est = res['n'] * 0.045
             speedup = t_phy_est / max(res['time'], 1e-9)
-            k3.metric("Tiempo Ahorrado", f"{t_phy_est:.2f} s", delta=f"{speedup:.0f}x Speedup")
-            k3.caption("Vs. Simulación Física")
+            k3.metric("Speedup", f"{speedup:.0f}x", delta="vs Physics Engine")
 
-            k4.metric("Mejor Coste (Est.)", f"{res['best'][1]:.2f}")
-            k4.caption("Predicción del Modelo")
+            # Formula reference
+            st.latex(r"Speedup = \frac{T_{Physics} \times N}{T_{AI}}")
 
-            st.divider()
-
-            # --- VISUALIZACIÓN DE CANDIDATOS ---
-            st.subheader("Mapa de Decisión del Modelo Subrogado")
             fig = go.Figure()
-
-            # Barras coloreadas
-            colors = ['crimson' if c > 1500 else 'mediumseagreen' for c in res['preds']]
-            fig.add_trace(go.Bar(y=res['preds'], marker_color=colors, name='Candidatos'))
-
-            # Marcadores
-            fig.add_trace(go.Scatter(x=[res['best'][0]], y=[res['best'][1]], mode='markers',
-                                     marker=dict(color='yellow', size=15, symbol='star',
-                                                 line=dict(width=2, color='black')),
-                                     name='Ganador (Selección IA)'))
-
-            fig.update_layout(height=300, margin=dict(l=0, r=0, t=30, b=0), yaxis_title="Coste Físico Predicho")
+            colors = ['crimson' if c > COLLISION_THRESHOLD else 'mediumseagreen' for c in res['preds']]
+            fig.add_trace(go.Bar(y=res['preds'], marker_color=colors, name='Candidates'))
+            fig.add_trace(go.Scatter(x=[res['best']], y=[best_cost], mode='markers',
+                                     marker=dict(color='yellow', size=15, symbol='star'), name='Selected'))
             st.plotly_chart(fig, use_container_width=True)
 
-            # --- VALIDACIÓN COMPARATIVA ---
-            if st.button("🎥 Validar Ganador vs Perdedor (Simulación Física)"):
+            if st.button("🎥 Validate Winner"):
                 sim = RobotSimulator(dimension=N_DIMENSIONS, gui_mode=False)
                 t, o = res['ctx']
+                with st.spinner("Simulating..."):
+                    rc = sim.evaluate(res['cands'][res['best']].reshape(1, -1), t.reshape(1, -1), o.reshape(1, -1))[0][
+                        0]
+                    sim.generate_gif(res['cands'][res['best']], t, o, "win.gif")
 
-                with st.spinner("Generando comparativa visual..."):
-                    # Ganador
-                    traj_win = res['cands'][res['best'][0]]
-                    cost_win = sim.evaluate(traj_win.reshape(1, -1), t.reshape(1, -1), o.reshape(1, -1))[0][0]
-                    sim.generate_gif(traj_win, t, o, "win.gif")
+                c_vid, c_dat = st.columns([1, 1])
+                c_vid.image("win.gif", caption=f"Real Cost: {rc:.2f}", use_container_width=True)
 
-                    # Perdedor
-                    traj_lose = res['cands'][res['worst'][0]]
-                    cost_lose = sim.evaluate(traj_lose.reshape(1, -1), t.reshape(1, -1), o.reshape(1, -1))[0][0]
-                    sim.generate_gif(traj_lose, t, o, "lose.gif")
-
-                c_win, c_lose = st.columns(2)
-
-                with c_win:
-                    st.markdown("### ✅ Trayectoria Ganadora")
-                    st.image("win.gif", use_container_width=True)
-                    st.metric("Coste Real", f"{cost_win:.2f}")
-                    st.caption("El robot esquiva el obstáculo y llega al objetivo.")
-
-                with c_lose:
-                    st.markdown("### ❌ Trayectoria Descartada")
-                    st.image("lose.gif", use_container_width=True)
-                    st.metric("Coste Real", f"{cost_lose:.2f}")
-                    st.caption("El robot choca con el obstáculo (cubo azul).")
+                err = abs(rc - best_cost)
+                c_dat.metric("Prediction Error", f"{err:.2f}")
+                if rc < COLLISION_THRESHOLD:
+                    c_dat.success("✅ Success: Obstacle Avoided")
+                else:
+                    c_dat.error("❌ Failure: Collision Occurred")

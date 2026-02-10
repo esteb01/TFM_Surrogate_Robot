@@ -8,53 +8,54 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 import joblib
 
-# Importación de módulos propios
+# Project Module Imports
 from src.simulation import RobotSimulator
 from src.data_generation import DataGenerator
 from src.preprocessing import DimensionalityReducer
-from src.surrogate_models import KrigingSurrogate, NeuralSurrogate, RBFSurrogate, SVRSurrogate
+from src.surrogate_models import KrigingSurrogate, NeuralSurrogate, RBFSurrogate, SVRSurrogate, PhysicsGuidedSurrogate
+from src.hyperparameter_tuning import HyperparameterOptimizer
 
 
 def main():
-    # ==============================================================================
-    # 1. CONFIGURACIÓN DEL EXPERIMENTO
-    # ==============================================================================
-    # Definición de hiperparámetros globales para garantizar reproducibilidad.
-    N_SAMPLES = 20000  # Tamaño del dataset para capturar la variabilidad estocástica
-    N_DIMENSIONS = 350  # Dimensionalidad del input (7 joints * 50 steps)
-    LATENT_DIM = 16  # Dimensión del espacio latente (Compresión ~95%)
-    CONTEXT_DIM = 6  # Variables de contexto (Target + Obstáculo)
+    # ==========================================
+    # 1. EXPERIMENTAL SETUP & CONFIGURATION
+    # ==========================================
+    # Hyperparameters for the experiment
+    N_SAMPLES = 20000  # Large dataset to ensure statistical significance
+    N_DIMENSIONS = 350  # High-dimensional input (7 joints * 50 time steps)
+    LATENT_DIM = 16  # Target dimension for the Autoencoder compression
+    CONTEXT_DIM = 6  # Environmental context variables (Target XYZ + Obstacle XYZ)
+    HPO_TRIALS = 15  # Number of Optuna trials per model for hyperparameter tuning
 
-    # Estructura de directorios
+    # Directory management
     DATA_DIR = os.path.join('data', 'raw')
     MODELS_DIR = 'models'
     RESULTS_DIR = 'results'
-
     for d in [DATA_DIR, MODELS_DIR, RESULTS_DIR]:
         os.makedirs(d, exist_ok=True)
 
     RAW_DATA_PATH = os.path.join(DATA_DIR, 'robot_final_data.csv')
 
-    # ==============================================================================
-    # 2. GENERACIÓN DE DATOS (High-Fidelity Simulation)
-    # ==============================================================================
-    print(f"--- 1. Generación de Datos ({N_SAMPLES} muestras) ---")
+    # ==========================================
+    # 2. DATA ACQUISITION
+    # ==========================================
+    print(f"--- 1. Data Generation Pipeline ({N_SAMPLES} samples) ---")
 
     if not os.path.exists(RAW_DATA_PATH):
-        # Si no existe dataset previo, ejecutamos la simulación física masiva.
+        # Initialize simulator and data generator
         sim = RobotSimulator(dimension=N_DIMENSIONS)
         gen = DataGenerator(simulator=sim)
 
-        # Generación de trayectorias balanceadas (Seguras vs. Colisiones)
+        # Generate stochastic scenarios including edge cases (near-misses and collisions)
         df = gen.create_dataset(n_samples=N_SAMPLES, save_path=RAW_DATA_PATH)
     else:
-        print("Cargando dataset existente desde disco...")
+        print("Loading existing dataset from disk...")
         df = pd.read_csv(RAW_DATA_PATH)
 
-    # ==============================================================================
-    # 3. PREPROCESAMIENTO Y TRANSFORMACIÓN
-    # ==============================================================================
-    # Separación de variables según su naturaleza (Trayectoria vs Contexto)
+    # ==========================================
+    # 3. PREPROCESSING & FEATURE ENGINEERING
+    # ==========================================
+    # Extract feature subsets
     traj_cols = [c for c in df.columns if c.startswith('dim_')]
     context_cols = ['target_x', 'target_y', 'target_z', 'obs_x', 'obs_y', 'obs_z']
 
@@ -62,123 +63,138 @@ def main():
     X_context = df[context_cols].values
     y_raw = df['cost'].values
 
-    # Transformación Logarítmica de la Variable Objetivo ($J$)
-    # Objetivo: Suavizar la distribución de costes y reducir el impacto de outliers (colisiones).
+    # Log-Transformation of the Target
+    # Compresses the dynamic range of the cost function (e.g., [100, 3000] -> [4.6, 8.0])
+    # improving convergence for gradient-based methods.
     y_log = np.log1p(y_raw)
 
-    # División Train/Test (80/20) estratificada implícitamente por el orden aleatorio
+    # Binary Classification Labeling
+    # Threshold empirically determined via EDA (Separation of safe vs. collision modes)
+    COLLISION_THRESHOLD = 1500
+    y_cls = (y_raw > COLLISION_THRESHOLD).astype(int)
+
+    # Stratified Split (80% Train / 20% Test)
     idx = np.arange(len(X_traj))
     idx_train, idx_test = train_test_split(idx, test_size=0.2, random_state=42)
 
-    X_traj_train, X_context_train, y_train = X_traj[idx_train], X_context[idx_train], y_log[idx_train]
-    X_traj_test, X_context_test, y_test = X_traj[idx_test], X_context[idx_test], y_log[idx_test]
+    X_traj_train = X_traj[idx_train]
+    X_traj_test = X_traj[idx_test]
 
-    # ==============================================================================
-    # 4. REDUCCIÓN DE DIMENSIONALIDAD (Autoencoder Profundo)
-    # ==============================================================================
-    print(f"\n--- 2. Entrenamiento Autoencoder (GPU Accelerated) ---")
+    # ==========================================
+    # 4. DIMENSIONALITY REDUCTION (Deep Autoencoder)
+    # ==========================================
+    print(f"\n--- 2. Training Autoencoder (GPU Accelerated) ---")
     dr = DimensionalityReducer(method='autoencoder', n_components=LATENT_DIM)
 
-    # Aprendizaje no supervisado de la variedad (manifold) de trayectorias
+    # Train the encoder to compress trajectory data
     Z_train = dr.fit_transform(X_traj_train)
+    # Project test data into the learned latent space
     Z_test = dr.transform(X_traj_test)
 
-    # ==============================================================================
-    # 5. FUSIÓN DE CARACTERÍSTICAS (Feature Fusion)
-    # ==============================================================================
-    # Construcción del vector de entrada híbrido para los modelos subrogados.
-    # Input = [Espacio Latente (Z) + Variables de Contexto (C)]
-    X_model_train = np.hstack([Z_train, X_context_train])
-    X_model_test = np.hstack([Z_test, X_context_test])
+    # ==========================================
+    # 5. FEATURE FUSION & SCALING
+    # ==========================================
+    # Construct final input vectors: [Latent Features + Environmental Context]
+    X_model_train = np.hstack([Z_train, X_context[idx_train]])
+    X_model_test = np.hstack([Z_test, X_context[idx_test]])
 
-    # Normalización del Target (0-1) para facilitar convergencia de NN y SVR
+    # Targets for Training
+    y_train = y_log[idx_train]
+    y_c_train = y_cls[idx_train]
+
+    # MinMax Scaling for Regression Targets (Crucial for Neural Net convergence)
     target_scaler = MinMaxScaler()
     y_train_scaled = target_scaler.fit_transform(y_train.reshape(-1, 1))
-    y_test_scaled = target_scaler.transform(y_test.reshape(-1, 1))
+    # Transform test targets using training statistics
+    y_test_scaled = target_scaler.transform(y_log[idx_test].reshape(-1, 1))
 
-    # Preprocesamiento específico para Kriging (Eliminación de duplicados)
-    # Kriging requiere matrices de covarianza no singulares.
+    # Calculate scaled threshold for evaluation metrics
+    thresh_log = np.log1p(COLLISION_THRESHOLD)
+    thresh_scaled = target_scaler.transform([[thresh_log]])[0][0]
+
+    # Data Cleaning for Kriging Stability
+    # Kriging requires a non-singular covariance matrix; duplicate points must be removed.
     df_k = pd.DataFrame(X_model_train)
     df_k['y'] = y_train_scaled
     df_k = df_k.drop_duplicates(subset=df_k.columns[:-1])
     X_kc = df_k.iloc[:, :-1].values
     y_kc = df_k['y'].values
 
-    # ==============================================================================
-    # 6. ENTRENAMIENTO DE MODELOS SUBROGADOS
-    # ==============================================================================
-    print("\n--- 3. Entrenamiento y Evaluación de Modelos ---")
+    # ==========================================
+    # 6. AUTOMATED HYPERPARAMETER OPTIMIZATION
+    # ==========================================
+    # Initialize and run Bayesian Optimization via Optuna
+    optimizer = HyperparameterOptimizer(X_model_train, y_train_scaled, y_c_train, LATENT_DIM + CONTEXT_DIM, MODELS_DIR)
+    best_params = optimizer.optimize_all(n_trials=HPO_TRIALS)
 
+    # ==========================================
+    # 7. FINAL MODEL TRAINING
+    # ==========================================
+    print("\n--- 3. Training Final Surrogate Models ---")
+
+    # Instantiate models using optimized hyperparameters
     models = [
-        KrigingSurrogate(),
-        NeuralSurrogate(input_dim=LATENT_DIM + CONTEXT_DIM),
-        RBFSurrogate(),
-        SVRSurrogate()
+        KrigingSurrogate(params=best_params.get("Kriging")),
+        NeuralSurrogate(input_dim=LATENT_DIM + CONTEXT_DIM, params=best_params.get("Neural Network")),
+        PhysicsGuidedSurrogate(input_dim=LATENT_DIM + CONTEXT_DIM, params=best_params.get("PINN")),
+        RBFSurrogate(params=best_params.get("RBF")),
+        SVRSurrogate(params=best_params.get("SVR"))
     ]
 
     results = []
-    # Mapeo para persistencia de archivos
+    # Naming convention for serialization
     name_map = {
         "Kriging (Standard)": "kriging",
-        "Neural Network (GPU)": "neural_net",
+        "Neural Network (Multi-Task)": "neural_net",
+        "PINN (Physics-Guided)": "pinn",
         "RBF (SMT)": "rbf",
         "SVR (Sklearn)": "svr"
     }
 
     for model in models:
-        print(f"\nProcesando {model.name}...")
+        print(f"\n>> Processing {model.name}...")
 
-        # Estrategias de entrenamiento adaptadas a la complejidad computacional de cada algoritmo
+        # Training logic adapted to algorithm complexity
         if "Kriging" in model.name:
-            # Kriging escala cúbicamente O(N^3). Limitamos muestras para viabilidad.
-            limit = min(len(X_kc), 350)
-            print(f"[INFO] Kriging limitado a {limit} muestras (Restricción Computacional).")
+            # Kriging scales as O(N^3). Subsampling is required for feasibility.
+            limit = min(len(X_kc), 400)
+            print(f"[INFO] Kriging subsampled to {limit} points (Computational constraint).")
             model.fit(X_kc[:limit], y_kc[:limit])
-
-        elif "Neural" in model.name:
-            # Deep Learning aprovecha grandes volúmenes de datos.
-            model.fit(X_model_train, y_train_scaled, epochs=400, batch_size=256)
-
+        elif "Neural" in model.name or "PINN" in model.name:
+            # Deep Learning models utilize the full dataset and GPU acceleration.
+            model.fit(X_model_train, y_train_scaled, collision_labels=y_c_train, epochs=400, batch_size=256)
         elif "RBF" in model.name:
-            # RBF es sensible a matrices densas grandes.
-            limit = min(len(X_kc), 4000)
-            model.fit(X_kc[:limit], y_kc[:limit])
+            # RBF memory usage is high; limited subset used.
+            model.fit(X_kc[:3000], y_kc[:3000])
+        else:
+            # SVR scales quadratically; limited subset used.
+            model.fit(X_model_train[:5000], y_train_scaled[:5000])
 
-        else:  # SVR
-            limit = min(len(X_model_train), 5000)
-            model.fit(X_model_train[:limit], y_train_scaled[:limit])
-
-        # Evaluación en conjunto de test (datos no vistos)
-        metrics = model.evaluate(X_model_test, y_test_scaled)
+        # Evaluate on the hold-out test set
+        metrics = model.evaluate(X_model_test, y_test_scaled, collision_threshold=thresh_scaled)
         metrics['Model'] = model.name
         results.append(metrics)
 
-        # Persistencia del modelo entrenado
-        filename = name_map.get(model.name, "m") + ".pkl"
+        # Serialize model
+        filename = name_map.get(model.name, "model") + ".pkl"
         model.save(os.path.join(MODELS_DIR, filename))
 
-    # Guardado de artefactos globales para inferencia
+    # Serialize global artifacts (Autoencoder & Scaler)
     dr.save(os.path.join(MODELS_DIR, 'autoencoder.pkl'))
     joblib.dump(target_scaler, os.path.join(MODELS_DIR, 'target_scaler.pkl'))
 
-    # ==============================================================================
-    # 7. ANÁLISIS DE RESULTADOS (Clasificación + Regresión)
-    # ==============================================================================
-    print("\n--- 4. Generando Análisis de Desempeño ---")
-
-    # Definición del Umbral de Seguridad
-    # Basado en el análisis EDA, J=1500 separa trayectorias seguras de colisiones.
-    COLLISION_THRESHOLD_REAL = 1500
-    thresh_log = np.log1p(COLLISION_THRESHOLD_REAL)
-    thresh_scaled = target_scaler.transform([[thresh_log]])[0][0]
+    # ==========================================
+    # 8. ANALYSIS & VISUALIZATION
+    # ==========================================
+    print("\n--- 4. Generating Performance Analysis ---")
 
     final_results = []
 
-    # Configuración de gráficos comparativos
-    fig_cm, axes_cm = plt.subplots(2, 2, figsize=(12, 10))
+    # Configure subplots (2x3 grid to accommodate 5 models)
+    fig_cm, axes_cm = plt.subplots(2, 3, figsize=(18, 10))
     axes_cm = axes_cm.flatten()
 
-    fig_reg, axes_reg = plt.subplots(2, 2, figsize=(12, 10))
+    fig_reg, axes_reg = plt.subplots(2, 3, figsize=(18, 10))
     axes_reg = axes_reg.flatten()
 
     for i, res in enumerate(results):
@@ -186,45 +202,40 @@ def main():
         y_true = res['y_true']
         y_pred = res['y_pred'].flatten()
 
-        # Cálculo de métricas de clasificación (Seguridad)
-        true_class = (y_true > thresh_scaled).astype(int)
-        pred_class = (y_pred > thresh_scaled).astype(int)
+        # Binary Classification Analysis
+        y_true_cls = (y_true > thresh_scaled).astype(int)
+        y_pred_cls = (y_pred > thresh_scaled).astype(int)
+        cm = confusion_matrix(y_true_cls, y_pred_cls)
 
-        acc = np.mean(true_class == pred_class)
-        prec = precision_score(true_class, pred_class, zero_division=0)
-        rec = recall_score(true_class, pred_class, zero_division=0)
-        f1 = f1_score(true_class, pred_class, zero_division=0)
-
-        # Registro de métricas extendidas
+        # Aggregating metrics for CSV report
         metrics_row = {
-            'Model': model_name,
-            'R2': res['r2'],
-            'RMSE': res['rmse'],
-            'MAE': res['mae'],
-            'Accuracy': acc,
-            'Precision': prec,
-            'Recall': rec,
-            'F1-Score': f1
+            'Model': model_name, 'r2': res['r2'], 'rmse': res['rmse'], 'mae': res['mae'],
+            'accuracy': res['accuracy'], 'precision': res['precision'], 'recall': res['recall'], 'f1': res['f1']
         }
         final_results.append(metrics_row)
 
-        # Visualización: Matriz de Confusión
-        cm = confusion_matrix(true_class, pred_class)
+        # Visualization: Confusion Matrix
         ax = axes_cm[i]
         sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=ax, cbar=False,
-                    xticklabels=['Seguro', 'Choque'], yticklabels=['Seguro', 'Choque'])
-        ax.set_title(f"{model_name}\nRecall: {rec:.1%} | F1: {f1:.1%}")
-        ax.set_ylabel('Realidad')
-        ax.set_xlabel('Predicción')
+                    xticklabels=['Safe', 'Crash'], yticklabels=['Safe', 'Crash'])
+        ax.set_title(f"{model_name}\nRecall: {res['recall']:.1%}")
+        ax.set_ylabel('True Label')
+        ax.set_xlabel('Predicted Label')
 
-        # Visualización: Regresión (Predicho vs Real)
+        # Visualization: Regression Scatter Plot
         axr = axes_reg[i]
         axr.scatter(y_true, y_pred, alpha=0.3, s=5, c='purple')
-        axr.plot([0, 1], [0, 1], 'r--', lw=2)  # Línea ideal
+        axr.plot([0, 1], [0, 1], 'r--', lw=2)  # Reference identity line
         axr.set_title(f"{model_name} ($R^2={res['r2']:.3f}$)")
         axr.grid(True, alpha=0.3)
 
-    # Exportación de gráficos
+    # Hide unused subplots
+    if len(results) < len(axes_cm):
+        for idx in range(len(results), len(axes_cm)):
+            axes_cm[idx].axis('off')
+            axes_reg[idx].axis('off')
+
+    # Save plots to disk
     plt.figure(fig_cm.number)
     plt.tight_layout()
     plt.savefig(os.path.join(RESULTS_DIR, 'confusion_matrices.png'))
@@ -233,13 +244,15 @@ def main():
     plt.tight_layout()
     plt.savefig(os.path.join(RESULTS_DIR, 'regression_plots.png'))
 
-    # Exportación de tabla final
+    print("[INFO] Analysis plots saved to /results folder.")
+
+    # Save Metrics CSV
     df_final = pd.DataFrame(final_results)
-    print("\n--- TABLA FINAL DE RESULTADOS ---")
+    print("\n--- FINAL RESULTS TABLE ---")
     print(df_final.to_string(index=False))
     df_final.to_csv(os.path.join(RESULTS_DIR, 'model_comparison.csv'), index=False)
 
-    print("\n[ÉXITO] Pipeline completo finalizado.")
+    print("\n[SUCCESS] Pipeline Completed Successfully.")
 
 
 if __name__ == "__main__":

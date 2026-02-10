@@ -11,15 +11,14 @@ from torch.utils.data import DataLoader, TensorDataset
 
 class AutoencoderNet(nn.Module):
     """
-    Arquitectura de Autoencoder Profundo para reducción de dimensionalidad no lineal.
-    Diseñada para capturar la variedad topológica de trayectorias robóticas de alta dimensión.
+    Deep Autoencoder architecture for nonlinear dimensionality reduction.
+    Designed to capture the topological manifold of high-dimensional robotic trajectories.
     """
 
     def __init__(self, input_dim, latent_dim):
         super(AutoencoderNet, self).__init__()
 
-        # Encoder: Compresión progresiva (Input -> 512 -> 256 -> 128 -> Latent)
-        # Se utiliza BatchNorm y LeakyReLU para estabilizar el entrenamiento y evitar el desvanecimiento del gradiente.
+        # Encoder: Progressive compression
         self.encoder = nn.Sequential(
             nn.Linear(input_dim, 512),
             nn.BatchNorm1d(512),
@@ -36,7 +35,7 @@ class AutoencoderNet(nn.Module):
             nn.Linear(128, latent_dim)
         )
 
-        # Decoder: Reconstrucción simétrica (Latent -> 128 -> 256 -> 512 -> Input)
+        # Decoder: Symmetric reconstruction
         self.decoder = nn.Sequential(
             nn.Linear(latent_dim, 128),
             nn.BatchNorm1d(128),
@@ -61,29 +60,25 @@ class AutoencoderNet(nn.Module):
 
 class DimensionalityReducer:
     """
-    Controlador para técnicas de reducción de dimensionalidad.
-    Soporta PCA (lineal) y Autoencoders (no lineal) con aceleración GPU.
+    Wrapper for dimensionality reduction techniques.
+    Supports PCA (linear) and Autoencoders (nonlinear) with GPU acceleration.
     """
 
     def __init__(self, method='pca', n_components=2):
         self.method = method
         self.n_components = n_components
 
-        # Normalizadores específicos según el método
-        self.scaler = StandardScaler()  # PCA requiere media 0 y varianza 1
-        self.minmax = MinMaxScaler()  # NN convergen mejor en rango [0, 1]
+        self.scaler = StandardScaler()  # For PCA
+        self.minmax = MinMaxScaler()  # For NN
 
         self.model = None
         self.input_dim = None
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         if self.method == 'autoencoder':
-            print(f"[INFO] Backend de computación configurado: {self.device}")
+            print(f"[INFO] Compute backend: {self.device}")
 
     def fit_transform(self, X):
-        """
-        Ajusta el modelo de reducción y transforma los datos de entrada.
-        """
         self.input_dim = X.shape[1]
 
         if self.method == 'pca':
@@ -92,25 +87,21 @@ class DimensionalityReducer:
             return self.model.fit_transform(X_scaled)
 
         elif self.method == 'autoencoder':
-            # Preprocesamiento y carga en GPU
+            # Preprocessing and GPU transfer
             X_scaled = self.minmax.fit_transform(X)
             X_tensor = torch.tensor(X_scaled, dtype=torch.float32).to(self.device)
 
-            # Dataloader para entrenamiento por lotes (Batch Training)
             dataset = TensorDataset(X_tensor, X_tensor)
             loader = DataLoader(dataset, batch_size=256, shuffle=True)
 
-            # Inicialización del modelo
             self.model = AutoencoderNet(input_dim=self.input_dim, latent_dim=self.n_components).to(self.device)
-
-            # Optimizador AdamW con Scheduler para ajuste dinámico del Learning Rate
             optimizer = optim.AdamW(self.model.parameters(), lr=0.001, weight_decay=1e-5)
             scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=10, factor=0.5)
             criterion = nn.MSELoss()
 
             epochs = 200
             self.model.train()
-            print(f"[INFO] Iniciando entrenamiento del Autoencoder ({epochs} épocas)...")
+            print(f"[INFO] Starting Autoencoder training ({epochs} epochs)...")
 
             for epoch in range(epochs):
                 total_loss = 0
@@ -122,14 +113,13 @@ class DimensionalityReducer:
                     optimizer.step()
                     total_loss += loss.item()
 
-                # Monitoreo y ajuste de LR
                 avg_loss = total_loss / len(loader)
                 scheduler.step(avg_loss)
 
                 if (epoch + 1) % 50 == 0:
                     print(f"  Epoch {epoch + 1}/{epochs} | Loss: {avg_loss:.6f}")
 
-            # Inferencia final para obtener el espacio latente
+            # Inference
             self.model.eval()
             with torch.no_grad():
                 _, X_latent = self.model(X_tensor)
@@ -137,9 +127,6 @@ class DimensionalityReducer:
             return X_latent.cpu().numpy()
 
     def transform(self, X):
-        """
-        Aplica la reducción de dimensionalidad a nuevos datos utilizando el modelo ajustado.
-        """
         if self.method == 'pca':
             X_scaled = self.scaler.transform(X)
             return self.model.transform(X_scaled)
@@ -154,7 +141,6 @@ class DimensionalityReducer:
             return z.cpu().numpy()
 
     def save(self, path):
-        """Persistencia del modelo y sus preprocesadores."""
         state = {
             'method': self.method,
             'scaler': self.scaler,
@@ -169,16 +155,14 @@ class DimensionalityReducer:
         joblib.dump(state, path)
 
     def load(self, path):
-        """Carga del modelo desde disco."""
         state = joblib.load(path)
         self.method = state['method']
         self.scaler = state['scaler']
         self.minmax = state['minmax']
         self.n_components = state['n_components']
-        self.input_dim = state.get('input_dim', 350)  # Fallback seguro
+        self.input_dim = state.get('input_dim', 350)
 
         if self.method == 'autoencoder':
-            # Reconstrucción de la arquitectura PyTorch
             self.model = AutoencoderNet(input_dim=self.input_dim, latent_dim=self.n_components).to(self.device)
             self.model.load_state_dict(state['model_state_dict'])
             self.model.eval()
