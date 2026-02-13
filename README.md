@@ -131,5 +131,5 @@ The system has been validated with a test dataset of 4,000 unseen samples (20% o
 ---
 
 ## Contact
-- Esteban Ruiz Hernández - estebanruiz435@gmial.com
+- Esteban Ruiz Hernández - estebanruiz435@gmail.com
 - Project Link: (https://github.com/esteb01/TFM_Surrogate_Robot)
