@@ -72,10 +72,23 @@ class SurrogateModel:
         prec = precision_score(y_test_class, y_pred_class, zero_division=0)
         f1 = f1_score(y_test_class, y_pred_class, zero_division=0)
 
-        print(f"[{self.name}] Reg(R2={r2:.4f}) | Class(Recall={rec:.4f})")
+        # SMAPE — Symmetric Mean Absolute Percentage Error
+        # Expresses error as symmetric proportion of combined magnitude.
+        # More robust than MAPE: avoids asymmetric penalisation of overestimation.
+        # Reference: Chicco et al., PeerJ Computer Science, 2021.
+        epsilon = 1e-8
+        y_true_flat = y_test.flatten()
+        y_pred_flat = y_pred_reg.flatten()
+        smape = float(np.mean(
+            2.0 * np.abs(y_pred_flat - y_true_flat) /
+            (np.abs(y_true_flat) + np.abs(y_pred_flat) + epsilon)
+        ) * 100)
+
+        print(f"[{self.name}] Reg(R2={r2:.4f}, SMAPE={smape:.2f}%) | Class(Recall={rec:.4f})")
 
         return {
             'rmse': rmse, 'r2': r2, 'mae': mae, 'max_error': max_err,
+            'smape': smape,
             'accuracy': acc, 'recall': rec, 'precision': prec, 'f1': f1,
             'y_pred': y_pred_reg, 'y_true': y_test
         }
@@ -359,5 +372,3 @@ class PhysicsGuidedSurrogate(NeuralSurrogate):
         except Exception as e:
             print(f"[ERROR] PINN Training failed: {e}")
             self.is_trained = False
-
-

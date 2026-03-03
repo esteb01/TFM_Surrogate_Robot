@@ -210,6 +210,7 @@ def main():
         # Aggregating metrics for CSV report
         metrics_row = {
             'Model': model_name, 'r2': res['r2'], 'rmse': res['rmse'], 'mae': res['mae'],
+            'smape': res['smape'],
             'accuracy': res['accuracy'], 'precision': res['precision'], 'recall': res['recall'], 'f1': res['f1']
         }
         final_results.append(metrics_row)
