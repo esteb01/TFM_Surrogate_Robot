@@ -107,13 +107,13 @@ This will open a tab in your browser where you can interact with the robot, gene
 
 The system has been validated with a test dataset of 4,000 unseen samples (20% of a total of 20,000). The Neural Network achieved the best regression accuracy, while the PINN demonstrated superior safety recall.
 
-| Model | R² Score (Precision) | Recall (Safety)* | Speedup (vs Physics) |
-| :--- | :---: | :---: | :---: |
-| **Neural Network (Multi-Task)** | **0.918** | 84.6% | **~1400x** |
-| Kriging (Standard) | 0.895 | 93.6% | ~40x |
-| PINN (Physics-Guided) | 0.852 | **96.2%** | ~1400x |
-| SVR (Sklearn) | 0.856 | 94.4% | ~800x |
-| RBF (SMT) | 0.851 | 92.0% | ~10x |
+| Model                          | R² Score | Recall (Safety)* | Speedup (vs Physics)|
+|-------------------------------|----------|-----------------|---------------|
+| **Neural Network (Multi-Task)**| **0.933**| 90.2%           | **~1250x**    |
+| PINN (Physics-Guided)          | 0.891    | **94.0%**       | ~1250x        |
+| Kriging (Standard)             | 0.878    | 92.2%           | ~40x          |
+| SVR (Sklearn)                  | 0.869    | **94.8%**       | ~830x         |
+| RBF (SMT)                      | 0.850    | 92.8%           | ~10x          |
 
 *\*Safety Recall: The model's ability to detect a real collision. A higher value indicates the system correctly identified more dangerous crashes (fewer false negatives).*
 
