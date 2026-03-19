@@ -60,6 +60,7 @@ TFM_Surrogate_Robot/
 │
 ├── app.py                    # Graphical Interface (Digital Twin)
 ├── main.py                   # Master training script
+├── regenerate_results.py     # Re-evaluates saved models, adds SMAPE to CSV
 └── requirements.txt          # Project dependencies
 ```
 
@@ -93,6 +94,11 @@ Run the master script. This process will generate 20,000 physical simulation sam
 
 Estimated time: 20-30 minutes (depending on GPU/CPU).
 Upon completion, you will see performance metrics in the console and graphs in the results/ folder.
+
+2b. (Optional) Regenerate results CSV with SMAPE metric
+If models are already trained, skip step 2 and run:
+
+- python regenerate_results.py
 
 3. Launch the Digital Twin
 Once training is finished, start the web interface:
