@@ -37,6 +37,7 @@ class SurrogateModel:
         if not self.is_trained:
             return {
                 'rmse': 999.0, 'r2': -999.0, 'mae': 999.0, 'max_error': 999.0,
+                'smape': 999.0,
                 'accuracy': 0.0, 'recall': 0.0, 'precision': 0.0, 'f1': 0.0,
                 'y_pred': np.zeros_like(y_test), 'y_true': y_test
             }
@@ -61,22 +62,17 @@ class SurrogateModel:
         y_test_class = (y_test > collision_threshold).astype(int)
 
         if y_pred_class_prob is not None:
-            # Explicit probability from NN head
             y_pred_class = (y_pred_class_prob > 0.5).astype(int)
         else:
-            # Thresholding on regression output
             y_pred_class = (y_pred_reg > collision_threshold).astype(int)
 
-        acc = accuracy_score(y_test_class, y_pred_class)
-        rec = recall_score(y_test_class, y_pred_class, zero_division=0)
+        acc  = accuracy_score(y_test_class, y_pred_class)
+        rec  = recall_score(y_test_class, y_pred_class, zero_division=0)
         prec = precision_score(y_test_class, y_pred_class, zero_division=0)
-        f1 = f1_score(y_test_class, y_pred_class, zero_division=0)
+        f1   = f1_score(y_test_class, y_pred_class, zero_division=0)
 
         # SMAPE — Symmetric Mean Absolute Percentage Error
-        # Expresses error as symmetric proportion of combined magnitude.
-        # More robust than MAPE: avoids asymmetric penalisation of overestimation.
-        # Reference: Chicco et al., PeerJ Computer Science, 2021.
-        epsilon = 1e-8
+        epsilon    = 1e-8
         y_true_flat = y_test.flatten()
         y_pred_flat = y_pred_reg.flatten()
         smape = float(np.mean(
@@ -115,10 +111,9 @@ class KrigingSurrogate(SurrogateModel):
     def __init__(self, params=None):
         super().__init__("Kriging (Standard)", params)
         theta0 = self.params.get('theta0', 1e-2)
-        poly = self.params.get('poly', 'constant')
-        corr = self.params.get('corr', 'squar_exp')
+        poly   = self.params.get('poly', 'constant')
+        corr   = self.params.get('corr', 'squar_exp')
         nugget = self.params.get('nugget', 1e-4)
-
         self.model = KRG(theta0=[theta0], print_global=False, poly=poly, corr=corr, nugget=nugget)
 
     def fit(self, X, y, **kwargs):
@@ -127,7 +122,7 @@ class KrigingSurrogate(SurrogateModel):
             self.model.train()
             self.is_trained = True
         except Exception as e:
-            print(f"[ERROR] Kriging training failed (Singular Matrix): {e}")
+            print(f"[ERROR] Kriging training failed: {e}")
             self.is_trained = False
 
     def predict(self, X):
@@ -141,7 +136,6 @@ class KrigingSurrogate(SurrogateModel):
 class MultiTaskNet(nn.Module):
     def __init__(self, input_dim, hidden_dim=256, dropout_rate=0.2):
         super(MultiTaskNet, self).__init__()
-        # Shared Feature Extractor
         self.backbone = nn.Sequential(
             nn.Linear(input_dim, hidden_dim),
             nn.LayerNorm(hidden_dim),
@@ -152,13 +146,11 @@ class MultiTaskNet(nn.Module):
             nn.GELU(),
             nn.Dropout(dropout_rate)
         )
-        # Regression Head
         self.regression_head = nn.Sequential(
             nn.Linear(hidden_dim // 2, 64),
             nn.GELU(),
             nn.Linear(64, 1)
         )
-        # Classification Head (Sigmoid for probability)
         self.classification_head = nn.Sequential(
             nn.Linear(hidden_dim // 2, 32),
             nn.GELU(),
@@ -174,27 +166,28 @@ class MultiTaskNet(nn.Module):
 class NeuralSurrogate(SurrogateModel):
     def __init__(self, input_dim, params=None):
         super().__init__("Neural Network (Multi-Task)", params)
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device    = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.input_dim = input_dim
 
-        hidden_dim = self.params.get('hidden_dim', 256)
-        dropout = self.params.get('dropout', 0.1)
-        self.lr = self.params.get('lr', 1e-3)
-        self.epochs = self.params.get('epochs', 300)
-        self.batch_size = self.params.get('batch_size', 256)
+        hidden_dim       = self.params.get('hidden_dim', 256)
+        dropout          = self.params.get('dropout', 0.1)
+        self.lr          = self.params.get('lr', 1e-3)
+        self.epochs      = self.params.get('epochs', 300)
+        self.batch_size  = self.params.get('batch_size', 256)
 
         self.model = MultiTaskNet(input_dim, hidden_dim, dropout).to(self.device)
 
     def fit(self, X, y, **kwargs):
         try:
             collision_labels = kwargs.get('collision_labels')
-            X_t = torch.tensor(X, dtype=torch.float32).to(self.device)
+            X_t   = torch.tensor(X, dtype=torch.float32).to(self.device)
             y_reg = torch.tensor(y, dtype=torch.float32).to(self.device)
             y_cls = torch.tensor(collision_labels, dtype=torch.float32).to(self.device)
 
             dataset = TensorDataset(X_t, y_reg, y_cls)
-            loader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
+            loader  = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
 
-            optimizer = optim.AdamW(self.model.parameters(), lr=self.lr, weight_decay=1e-4)
+            optimizer     = optim.AdamW(self.model.parameters(), lr=self.lr, weight_decay=1e-4)
             criterion_reg = nn.MSELoss()
             criterion_cls = nn.BCELoss()
 
@@ -203,9 +196,8 @@ class NeuralSurrogate(SurrogateModel):
                 for batch_x, batch_y_reg, batch_y_cls in loader:
                     optimizer.zero_grad()
                     pred_cost, pred_prob = self.model(batch_x)
-                    loss = criterion_reg(pred_cost, batch_y_reg.view(-1, 1)) + 0.5 * criterion_cls(pred_prob,
-                                                                                                   batch_y_cls.view(-1,
-                                                                                                                    1))
+                    loss = (criterion_reg(pred_cost, batch_y_reg.view(-1, 1))
+                            + 0.5 * criterion_cls(pred_prob, batch_y_cls.view(-1, 1)))
                     loss.backward()
                     optimizer.step()
             self.is_trained = True
@@ -214,9 +206,10 @@ class NeuralSurrogate(SurrogateModel):
             self.is_trained = False
 
     def predict(self, X):
-        if not self.is_trained: return np.zeros((len(X), 1)), np.zeros((len(X), 1))
+        if not self.is_trained:
+            return np.zeros((len(X), 1)), np.zeros((len(X), 1))
         self.model.eval()
-        X_t = torch.tensor(X, dtype=torch.float32).to(self.device)
+        X_t = torch.tensor(X.astype(np.float32), dtype=torch.float32).to(self.device)
         with torch.no_grad():
             cost, prob = self.model(X_t)
         return cost.cpu().numpy(), prob.cpu().numpy()
@@ -227,23 +220,44 @@ class NeuralSurrogate(SurrogateModel):
             print(f"[{self.name}] Weights saved at {path}")
 
     def load(self, path):
+        """
+        FIX (Bug #1): Reconstruct the model architecture from the SAVED params
+        BEFORE loading state_dict.
+
+        Root cause: HPO (Optuna) may find a hidden_dim != 256 (the default).
+        The saved .pkl contains the optimised hidden_dim in state['params'].
+        Previously, the constructor built a default-256 model and then
+        load_state_dict raised a shape mismatch, which was caught silently,
+        leaving is_trained=False. predict() then returned zeros, and
+        decode_cost(0.0) = expm1(scaler.inverse_transform(0.0)) = J_min = 26.24
+        for every trajectory regardless of input.
+        """
         try:
-            state = torch.load(path, weights_only=False)
+            state = torch.load(path, weights_only=False, map_location=self.device)
             self.params = state['params']
+
+            # Re-build with the exact hyperparams used at training time
+            hidden_dim = self.params.get('hidden_dim', 256)
+            dropout    = self.params.get('dropout', 0.1)
+
+            self.model = MultiTaskNet(self.input_dim, hidden_dim, dropout).to(self.device)
             self.model.load_state_dict(state['state_dict'])
             self.model.eval()
             self.is_trained = True
+            print(f"[{self.name}] Loaded OK — hidden_dim={hidden_dim}, input_dim={self.input_dim}")
         except Exception as e:
             print(f"[{self.name}] Error loading weights: {e}")
+            self.is_trained = False
+
 
 # ==============================================================================
-# 3. RBF & 4. SVR (Robust)
+# 3. RBF
 # ==============================================================================
 class RBFSurrogate(SurrogateModel):
     def __init__(self, params=None):
         super().__init__("RBF (SMT)", params)
-        self.scaler = StandardScaler()
-        d0 = self.params.get('d0', 1.0)
+        self.scaler    = StandardScaler()
+        d0  = self.params.get('d0', 1.0)
         reg = self.params.get('reg', 0.1)
         self.smt_model = RBF(d0=d0, poly_degree=0, print_global=False, reg=reg)
 
@@ -259,10 +273,8 @@ class RBFSurrogate(SurrogateModel):
 
     def predict(self, X):
         if not self.is_trained or self.model is None: return np.zeros((len(X), 1))
-        scaler = self.model['scaler']
-        smt = self.model['smt']
-        X_scaled = scaler.transform(X)
-        preds = smt.predict_values(X_scaled.astype(np.float64))
+        X_scaled = self.model['scaler'].transform(X)
+        preds    = self.model['smt'].predict_values(X_scaled.astype(np.float64))
         return np.nan_to_num(preds, nan=0.0)
 
     def save(self, path):
@@ -270,22 +282,26 @@ class RBFSurrogate(SurrogateModel):
 
     def load(self, path):
         try:
-            data = joblib.load(path);
-            self.model = data['model'];
-            self.params = data.get('params', {});
+            data = joblib.load(path)
+            self.model  = data['model']
+            self.params = data.get('params', {})
             self.is_trained = True
-        except:
-            pass
+        except Exception as e:
+            print(f"[{self.name}] Error loading model: {e}")
 
 
+# ==============================================================================
+# 4. SVR
+# ==============================================================================
 class SVRSurrogate(SurrogateModel):
     def __init__(self, params=None):
         super().__init__("SVR (Sklearn)", params)
-        C = self.params.get('C', 50)
+        C       = self.params.get('C', 50)
         epsilon = self.params.get('epsilon', 0.05)
-        gamma = self.params.get('gamma', 'scale')
+        gamma   = self.params.get('gamma', 'scale')
         self.model = Pipeline(
-            [('scaler', StandardScaler()), ('svr', SVR(kernel='rbf', C=C, epsilon=epsilon, gamma=gamma))])
+            [('scaler', StandardScaler()),
+             ('svr', SVR(kernel='rbf', C=C, epsilon=epsilon, gamma=gamma))])
 
     def fit(self, X, y, **kwargs):
         try:
@@ -298,40 +314,33 @@ class SVRSurrogate(SurrogateModel):
         if not self.is_trained: return np.zeros((len(X), 1))
         return self.model.predict(X).reshape(-1, 1)
 
+
 # ==============================================================================
-# 5. PHYSICS-GUIDED NEURAL NETWORK (PINN) - V2 (Balanced & Deeper)
+# 5. PHYSICS-GUIDED NEURAL NETWORK (PINN)
 # ==============================================================================
 class PhysicsGuidedSurrogate(NeuralSurrogate):
     """
     Extends NeuralSurrogate with a re-balanced Physics-Informed Loss function.
-    Focuses on improving classification Recall by up-weighting the safety-critical loss components.
     """
 
     def __init__(self, input_dim, params=None):
         super().__init__(input_dim, params)
-        self.name = "PINN (Physics-Guided)"
-        # Use a scaled threshold for calculations
-        self.phys_threshold = 0.5  # A mid-point in the scaled [0, 1] range
+        self.name           = "PINN (Physics-Guided)"
+        self.phys_threshold = 0.5
 
     def fit(self, X, y, **kwargs):
-        """
-        Custom training loop with weighted multi-task and physics loss.
-        """
         try:
             collision_labels = kwargs.get('collision_labels')
-            X_t = torch.tensor(X, dtype=torch.float32).to(self.device)
+            X_t   = torch.tensor(X, dtype=torch.float32).to(self.device)
             y_reg = torch.tensor(y, dtype=torch.float32).to(self.device)
             y_cls = torch.tensor(collision_labels, dtype=torch.float32).to(self.device)
 
             dataset = TensorDataset(X_t, y_reg, y_cls)
-            loader = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
+            loader  = DataLoader(dataset, batch_size=self.batch_size, shuffle=True)
 
-            optimizer = optim.AdamW(self.model.parameters(), lr=self.lr, weight_decay=1e-4)
-
-            # --- CRITICAL CHANGE: WEIGHTED LOSS ---
-            # Define loss functions without reduction to apply weights manually
+            optimizer     = optim.AdamW(self.model.parameters(), lr=self.lr, weight_decay=1e-4)
             criterion_reg = nn.MSELoss()
-            criterion_cls = nn.BCELoss(reduction='none')  # No reduction
+            criterion_cls = nn.BCELoss(reduction='none')
 
             self.model.train()
             print(f"[{self.name}] Training with Balanced Physics Loss...")
@@ -339,31 +348,18 @@ class PhysicsGuidedSurrogate(NeuralSurrogate):
             for epoch in range(self.epochs):
                 for batch_x, batch_y_reg, batch_y_cls in loader:
                     optimizer.zero_grad()
-
                     pred_cost, pred_prob = self.model(batch_x)
 
-                    # 1. Regression Loss (Standard)
                     loss_reg = criterion_reg(pred_cost, batch_y_reg.view(-1, 1))
 
-                    # 2. Classification Loss (Manually Weighted)
-                    # We give much more importance to getting crashes right.
                     bce_loss = criterion_cls(pred_prob, batch_y_cls.view(-1, 1))
-
-                    # If label is 1 (crash), weight is high. If 0 (safe), weight is low.
-                    # This tells the model: "It's much worse to miss a crash".
-                    weights = torch.where(batch_y_cls.view(-1, 1) == 1, 10.0, 1.0)  # 10x weight for crashes
+                    weights  = torch.where(batch_y_cls.view(-1, 1) == 1, 10.0, 1.0)
                     loss_cls = torch.mean(bce_loss * weights)
 
-                    # 3. Physics Loss (Consistency)
-                    # Penalty if (Cost < Threshold) AND (Prob > 0.5)
-                    # This term is now less dominant, acting as a fine-tuner
                     violation = torch.nn.functional.relu(self.phys_threshold - pred_cost)
-                    loss_phy = torch.mean(violation * pred_prob)
+                    loss_phy  = torch.mean(violation * pred_prob)
 
-                    # --- FINAL LOSS COMPOSITION ---
-                    # Give classification MUCH more weight than before
                     total_loss = loss_reg + 5.0 * loss_cls + 0.1 * loss_phy
-
                     total_loss.backward()
                     optimizer.step()
 
