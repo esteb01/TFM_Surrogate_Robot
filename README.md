@@ -1,4 +1,4 @@
-# Robotic Trajectory Optimization using Surrogate Models
+# Real-Time Robotic Trajectory Evaluation via Surrogate Models and Deep Latent Representations
 
 > **(TFM)** | Master in Applied Artificial Intelligence
 > - **Author:** Esteban Ruiz Hernández
